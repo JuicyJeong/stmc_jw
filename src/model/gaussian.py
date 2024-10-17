@@ -3,10 +3,11 @@ from collections import defaultdict
 from tqdm import tqdm
 
 import torch
+import numpy as np
 
 from .diffusion_base import DiffuserBase
 from ..data.collate import length_to_mask, collate_tensor_with_padding
-from src.stmc import combine_features_intervals, interpolate_intervals
+from src.stmc import combine_features_intervals, interpolate_intervals, get_fly_body_idx
 
 
 # Inplace operator: return the original tensor
@@ -145,6 +146,10 @@ class GaussianDiffusion(DiffuserBase):
     def forward(self, tx_emb, tx_emb_uncond, infos, progress_bar=tqdm):
         if "timeline" in infos:
             ff = self.stmc_forward
+
+            if infos["flying"]["bool"]:
+                ff = self.stmc_fly_forward
+
             if "baseline" in infos:
                 if "sinc" in infos["baseline"]:
                     ff = self.sinc_baseline
@@ -211,6 +216,7 @@ class GaussianDiffusion(DiffuserBase):
 
         mean, sigma = self.q_posterior_distribution_from_output_and_xt(output, xt, t)
 
+
         noise = torch.randn_like(mean)
         x_out = mean + sigma * noise
         xstart = output
@@ -223,6 +229,8 @@ class GaussianDiffusion(DiffuserBase):
         lengths = infos["all_lengths"]
         n_frames = infos["n_frames"]
         n_seq = infos["n_seq"]
+
+
 
         mask = length_to_mask(lengths, device=device)
 
@@ -251,6 +259,119 @@ class GaussianDiffusion(DiffuserBase):
 
         xstart = self.motion_normalizer.inverse(xstart)
         return xstart
+
+    def stmc_fly_forward(self, tx_emb, tx_emb_uncond, infos, progress_bar=tqdm):
+        device = self.device
+
+        # the lengths of all the crops + uncondionnal
+        lengths = infos["all_lengths"]
+        n_frames = infos["n_frames"]
+        n_seq = infos["n_seq"]
+
+        flying_dict = infos["flying"]
+
+        fly_path= flying_dict.pop("data_path")
+
+
+        motion = np.load(fly_path)
+
+        print("flying motion load done")
+        print(motion.shape)
+        motion = torch.from_numpy(motion[:n_frames,:]).to(torch.float).unsqueeze(0).to(device)
+        print("motion torch size : ",motion.size())
+        mask = length_to_mask(lengths, device=device)
+        flying_dict["motion"]=motion
+
+
+        y = {
+            "length": lengths,
+            "mask": mask,
+            "tx": self.prepare_tx_emb(tx_emb),
+            "tx_uncond": self.prepare_tx_emb(tx_emb_uncond),
+            "infos": infos,
+        }
+
+        bs = len(lengths)
+        nfeats = self.denoiser.nfeats
+
+        shape = n_seq, n_frames, nfeats
+
+        print("shape : ",shape)
+
+        xt = torch.randn(shape, device=device)
+
+
+
+        iterator = range(self.timesteps - 1, -1, -1)
+        if progress_bar is not None:
+            iterator = progress_bar(list(iterator), desc="Diffusion")
+
+        for diffusion_step in iterator:
+            t_seq = torch.full((n_seq,), diffusion_step)
+            t_bs = torch.full((bs,), diffusion_step)
+            xt, xstart = self.p_sample_stmc_fly(xt, y, t_seq, t_bs, flying_dict)
+
+        xstart = self.motion_normalizer.inverse(xstart)
+        return xstart
+
+    def p_sample_stmc_fly(self, xt, y, t_seq, t_bs, flying_dict):
+        all_intervals = y["infos"]["all_intervals"]
+
+        guidance_weight = y["infos"].get("guidance_weight", 1.0)
+
+        motion = flying_dict["motion"]
+        flying_joint = flying_dict["joint_lst"]
+        diffuse_ratio = flying_dict["diffuse_ratio"]
+        diffuse_data = flying_dict["data_type"]
+
+        x_lst = []
+        for idx, intervals in enumerate(all_intervals):
+            x_lst.extend([xt[idx, x.start : x.end] for x in intervals])
+
+        lengths = [len(x) for x in x_lst]
+        assert lengths == y["length"]
+
+        xx = collate_tensor_with_padding(x_lst)
+        output = self.denoiser(xx, y, t_bs)
+
+        if guidance_weight != 1.0:
+            output_cond = output
+
+            y_uncond = y.copy()  # not a deep copy
+            y_uncond["tx"] = y_uncond["tx_uncond"]
+
+            output_uncond = self.denoiser(xx, y_uncond, t_bs)
+            # classifier-free guidance
+            output = output_uncond + guidance_weight * (output_cond - output_uncond)
+
+        output_xt = 0 * xt
+        combine_features_intervals(output, y["infos"], output_xt)
+
+        mean, sigma = self.q_posterior_distribution_from_output_and_xt(
+            output_xt, xt, t_seq
+        )
+        #print(t_seq)
+        if t_seq == 1:
+            print("mean size : ", mean.size())
+            print("output size : ", output.size())
+            print("xt size : ", xt.size())
+
+        fly_body_idx=get_fly_body_idx(flying_joint, diffuse_data)
+
+        mean_fly, sigma_fly = self.q_distribution(
+            motion,t_seq
+        )
+        #mean[:, :, fly_body_idx] = mean_fly[:,:,fly_body_idx]
+
+        mean[:,:,fly_body_idx] = mean[:,:,fly_body_idx] + mean_fly[:,:,fly_body_idx] *diffuse_ratio
+
+        mean[:, :, fly_body_idx] = mean[:,:,fly_body_idx]/(1.0+diffuse_ratio)
+
+        noise = torch.randn_like(mean)
+        x_out = mean + sigma * noise
+
+        xstart = output_xt
+        return x_out, xstart
 
     def p_sample_stmc(self, xt, y, t_seq, t_bs):
         all_intervals = y["infos"]["all_intervals"]
@@ -283,6 +404,11 @@ class GaussianDiffusion(DiffuserBase):
         mean, sigma = self.q_posterior_distribution_from_output_and_xt(
             output_xt, xt, t_seq
         )
+        #print(t_seq)
+        if t_seq == 1:
+            print("mean size : ", mean.size())
+            print("output size : ", output.size())
+            print("xt size : ", xt.size())
 
         noise = torch.randn_like(mean)
         x_out = mean + sigma * noise

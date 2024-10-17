@@ -1,5 +1,7 @@
 import random
 
+import numpy as np
+
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -26,6 +28,33 @@ class IntervalInfo:
     out: Interval  # interval for slicing the whole motion (final output)
     crop: Interval  # interval for slicing the crop motion (output of the network)
     index: int  # index in the batch
+
+def get_fly_body_idx(joints_idx, diffuse_data):
+    pose_dim = 6
+    joints_dim = 3
+
+    pose_offset = 4
+    joints_offset = 139
+    print("checked data type :" , diffuse_data)
+    total_idx = []
+    if diffuse_data=="Poses+positions":
+
+        for joint_id in joints_idx: # diffused pose and joint positions
+            pose_np = np.arange(pose_dim) + joint_id * pose_dim + pose_offset
+
+            joints_np = np.arange(joints_dim) + joint_id * joints_dim + joints_offset
+
+            total_idx.extend(np.concatenate((pose_np, joints_np), axis=0).tolist())
+    else :
+
+        for joint_id in joints_idx: # only poses data diffusion
+            pose_np = np.arange(pose_dim) + joint_id * pose_dim + pose_offset
+            total_idx.extend(pose_np.tolist())
+
+    total_idx.sort()
+
+    return total_idx
+
 
 
 def read_bodyparts(bodyparts):
