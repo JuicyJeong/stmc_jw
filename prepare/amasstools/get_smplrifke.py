@@ -77,10 +77,10 @@ def get_features(folder, base_name, joints_name, new_name, force_redo=False):
 
 
 def main():
-    base_name = "AMASS_20.0_fps_nh"
-    joints_name = "AMASS_20.0_fps_nh_smpljoints_neutral_nobetas"
-    new_name = "AMASS_20.0_fps_nh_smplrifke"
-    folder = "datasets/motions"
+    base_name = "flying_20.0_fps_nh"
+    joints_name = "flying_20.0_fps_nh_smpljoints_neutral_nobetas"
+    new_name = "flying_20.0_fps_nh_smplrifke"
+    folder = "Flying_motion"
     force_redo = False
 
     get_features(folder, base_name, joints_name, new_name, force_redo=force_redo)

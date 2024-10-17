@@ -12,12 +12,13 @@ def loop_amams(
     only_mirror=False,
     exclude=None,
 ):
-    match_str = f"**/*{ext}"
+    match_str = f"*{ext}"
 
     if only_mirror:
         match_str = f"M2/**/*{ext}"
 
     for motion_file in tqdm(glob(match_str, root_dir=base_folder, recursive=True)):
+    #for motion_file in tqdm(glob(os.path.join(base_folder, '*.csv'))):
         if exclude and exclude in motion_file:
             continue
 

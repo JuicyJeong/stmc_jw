@@ -87,20 +87,80 @@ def mirror_smpl(
 
     return new_base_folder
 
+def mirror_fly(
+    base_folder,
+    new_base_folder,
+    force_redo,
+):
+    print("Mirror SMPL pose parameters")
+    print("The processed motions will be stored in this folder:")
+    print(new_base_folder)
+
+    iterator = loop_amams(
+        base_folder,
+        new_base_folder,
+        ext=".npz",
+        newext=".npz",
+        force_redo=force_redo,
+    )
+
+    for motion_path, new_motion_path in iterator:
+        if "humanact12" in motion_path:
+            continue
+
+        if new_base_folder in motion_path:
+            continue
+
+        # not mirroing again
+        if motion_path.startswith("M"):
+            continue
+
+        data = {x: y for x, y in np.load(motion_path).items()}
+
+        # process sequences
+        poses = torch.from_numpy(data["poses"])
+        trans = torch.from_numpy(data["trans"])
+
+        # flip poses
+        assert poses.shape[-1] == 66
+        mirror_poses = flip_pose(poses)
+
+        # flip trans
+        x, y, z = torch.unbind(trans, dim=-1)
+        mirrored_trans = torch.stack((-x, y, z), axis=-1)
+
+        data["poses"] = mirror_poses.numpy()
+        data["trans"] = mirrored_trans.numpy()
+
+        np.savez(new_motion_path, **data)
+
+    return new_base_folder
 
 def main():
-    base_folder = "datasets/motions/AMASS_20.0_fps_nh"
+    base_folder = "Flying_motion/flying_20.0_fps_nh"
     new_base_folder = os.path.join(base_folder, "M")
     # put the mirror motions in the M/ subfolder
 
     force_redo = False
 
-    mirror_smpl(
+    mirror_fly(
         base_folder,
         new_base_folder,
         force_redo,
     )
 
+
+    # base_folder = "datasets/motions/AMASS_20.0_fps_nh"
+    # new_base_folder = os.path.join(base_folder, "M")
+    # # put the mirror motions in the M/ subfolder
+    #
+    # force_redo = False
+    #
+    # mirror_smpl(
+    #     base_folder,
+    #     new_base_folder,
+    #     force_redo,
+    # )
 
 if __name__ == "__main__":
     main()

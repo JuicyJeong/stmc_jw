@@ -3,9 +3,9 @@ import numpy as np
 import torch
 from einops import rearrange, repeat
 
-from slerp import slerp
+#from slerp import slerp
 from loop_amass import loop_amams
-
+from pandas import read_csv
 
 def interpolate_fps_joints(joints, old_fps, new_fps, mode="linear"):
     assert old_fps != 0
@@ -102,15 +102,70 @@ def fix_fps(base_folder, new_base_folder, new_fps, force_redo=False):
 
         np.savez(new_motion_path, **new_data)
 
+def fix_flying(base_folder, new_base_folder, new_fps, force_redo=False):
+    print(f"Fix the fps to {new_fps}")
+    print("The processed motions will be stored in this folder:")
+    print(new_base_folder)
+
+    iterator = loop_amams(
+        base_folder, new_base_folder, ext=".csv", newext=".npz", force_redo=force_redo
+    )
+
+    for motion_path, new_motion_path in iterator:
+        if "humanact12" in motion_path:
+            continue
+
+        #data = {x: y for x, y in np.load(motion_path).items()}
+        #data = np.load(motion_path)
+        data = np.array(read_csv(motion_path))
+
+        #old_fps = float(data["mocap_framerate"])
+
+        # process sequences
+        poses = torch.from_numpy(data[:,:66]).to(torch.float)
+        trans = torch.from_numpy(data[:,66:]).to(torch.float)
+
+
+        # try:
+        #     inter_poses = interpolate_fps_poses(poses, old_fps, new_fps).numpy()
+        #     inter_trans = interpolate_fps_trans(trans, old_fps, new_fps).numpy()
+        # except RuntimeError:
+        #     # The sequence should be only 1 frame long
+        #     assert len(trans) == 1
+        #     # In this case return the original data
+        #     inter_poses = poses
+        #     inter_trans = trans
+
+        #new_data = data.copy()
+
+        new_data={}
+        new_data["trans"]=trans
+        new_data["poses"]=poses
+        new_data["mocap_framerate"]=new_fps
+
+
+        np.savez(new_motion_path, **new_data)
+
+
+
 
 def main():
     new_fps = 20.0
 
     force_redo = False
-    base_folder = "datasets/motions/AMASS"
-    new_base_folder = f"datasets/motions/AMASS_{new_fps}_fps_nh"  # nh for no hands
+    base_folder = "Flying_motion/base_origin"
+    new_base_folder = f"Flying_motion/flying_{new_fps}_fps_nh"  # nh for no hands
 
-    fix_fps(base_folder, new_base_folder, new_fps, force_redo)
+    fix_flying(base_folder, new_base_folder, new_fps, force_redo)
+
+
+    # new_fps = 20.0
+    #
+    # force_redo = False
+    # base_folder = "datasets/motions/AMASS"
+    # new_base_folder = f"datasets/motions/AMASS_{new_fps}_fps_nh"  # nh for no hands
+    #
+    # fix_fps(base_folder, new_base_folder, new_fps, force_redo)
 
 
 if __name__ == "__main__":

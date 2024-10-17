@@ -63,7 +63,7 @@ def extract_joints(
 
 
 def main():
-    base_folder = "datasets/motions/AMASS_20.0_fps_nh"
+    base_folder = "Flying_motion/flying_20.0_fps_nh" #"datasets/motions/AMASS_20.0_fps_nh"
     smplh_folder = "deps/smplh"
     jointstype = "smpljoints"
     batch_size = 4096
@@ -72,7 +72,7 @@ def main():
     force_redo = False
 
     name = os.path.split(base_folder)[1]
-    new_base_folder = f"datasets/motions/{name}_{jointstype}_{gender}_{'betas' if use_betas else 'nobetas'}"
+    new_base_folder = f"Flying_motion/{name}_{jointstype}_{gender}_{'betas' if use_betas else 'nobetas'}"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
